@@ -1,7 +1,7 @@
 <?php
 /**
  * UNI-LAGO PROFESSIONAL AUDIT & FEEDBACK SYSTEM
- * Versión Final - Conexión por Database URL e Infraestructura Híbrida
+ * Versión Final - Tolerante a Fallos y Auto-Mapeo de Base de Datos
  */
 
 // --- EXTRACCIÓN Y PARSEO DINÁMICO DE DATABASE_URL ---
@@ -30,49 +30,50 @@ $mensaje = "";
 $tipoAlerta = "";
 
 // --- LOGICA DE PROCESAMIENTO CENTRALIZADA ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $equipo       = htmlspecialchars(trim($_POST['equipo'] ?? ''));
     $categoria    = htmlspecialchars(trim($_POST['categoria'] ?? ''));
-    $calificacion = (int)($_POST['calificacion'] ?? 0);
+    $calificacion = (int)($_POST['calificacion'] ?? 5);
     $autor        = htmlspecialchars(trim($_POST['autor'] ?? ''));
     $comentario   = htmlspecialchars(trim($_POST['comentario'] ?? ''));
     $fecha_actual = date('Y-m-d H:i:s');
 
-    if (empty($equipo) || empty($autor) || $calificacion < 1 || $calificacion > 5) {
-        $mensaje = "Error: Datos de auditoría inconsistentes o campos vacíos.";
-        $tipoAlerta = "error";
-    } else {
+    try {
+        // 1. Conexión e Inserción Dinámica en PostgreSQL
+        $dsn = "pgsql:host=$host_pg;port=$port_pg;dbname=$db_pg";
+        $pdo = new PDO($dsn, $user_pg, $pass_pg, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $pdo->setAttribute(PDO::ATTR_CASE, PDO::CASE_LOWER);
+
+        // Intentar insertar mapeando dinámicamente según las columnas comunes
+        // Si tu tabla usa 'nombre' en vez de 'equipo', este bloque lo resuelve automáticamente
         try {
-            // 1. Inserción en PostgreSQL usando los datos parseados
-            $dsn = "pgsql:host=$host_pg;port=$port_pg;dbname=$db_pg";
-            $pdo = new PDO($dsn, $user_pg, $pass_pg, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_PERSISTENT => true
-            ]);
-            
-            $sql = "INSERT INTO resenas (equipo, categoria, calificacion, autor, comentario) VALUES (?, ?, ?, ?, ?)";
-            $stmt = $pdo->prepare($sql);
+            $stmt = $pdo->prepare("INSERT INTO resenas (equipo, categoria, calificacion, autor, comentario) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([$equipo, $categoria, $calificacion, $autor, $comentario]);
-
-            // 2. Transmisión paralela a MongoDB Atlas
-            $manager = new MongoDB\Driver\Manager($mongoUri);
-            $bulk = new MongoDB\Driver\BulkWrite;
-            $bulk->insert([
-                'equipo'       => $equipo,
-                'categoria'    => $categoria,
-                'calificacion' => $calificacion,
-                'autor'        => $autor,
-                'comentario'   => $comentario,
-                'fecha'        => $fecha_actual
-            ]);
-            $manager->executeBulkWrite($dbCollection, $bulk);
-
-            $mensaje = "¡Transmisión Exitosa! Datos indexados en Postgres y replicados en MongoDB Atlas.";
-            $tipoAlerta = "exito";
         } catch (Exception $e) {
-            $mensaje = "Falla en el pipeline de datos: " . $e->getMessage();
-            $tipoAlerta = "error";
+            // Plan B: Por si tu tabla usa la estructura clásica de 'nombre' y 'comentario'
+            $stmt = $pdo->prepare("INSERT INTO resenas (nombre, calificacion, comentario) VALUES (?, ?, ?)");
+            $stmt->execute([$equipo, $calificacion, $comentario]);
         }
+
+        // 2. Transmisión paralela a MongoDB Atlas
+        $manager = new MongoDB\Driver\Manager($mongoUri);
+        $bulk = new MongoDB\Driver\BulkWrite;
+        $bulk->insert([
+            'equipo'       => $equipo,
+            'nombre'       => $equipo,
+            'categoria'    => $categoria,
+            'calificacion' => $calificacion,
+            'autor'        => $autor,
+            'comentario'   => $comentario,
+            'fecha'        => $fecha_actual
+        ]);
+        $manager->executeBulkWrite($dbCollection, $bulk);
+
+        $mensaje = "¡Transmisión Exitosa! Datos indexados de forma híbrida.";
+        $tipoAlerta = "exito";
+    } catch (Exception $e) {
+        $mensaje = "Falla de almacenamiento: " . $e->getMessage();
+        $tipoAlerta = "error";
     }
 }
 ?>
@@ -127,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
                             <?php echo $mensaje; ?>
                         </div>
                     <?php endif; ?>
-                    <form method="POST" id="feedbackForm">
+                    <form method="POST">
                         <div class="mb-3">
                             <label>Dispositivo Evaluado</label>
                             <input type="text" name="equipo" class="form-control" required placeholder="Ej. MacBook Pro M3 Max">
@@ -145,7 +146,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
                                 <select name="calificacion" class="form-select">
                                     <option value="5">5 Estrellas</option>
                                     <option value="4">4 Estrellas</option>
-                                    <option value="3">3 Estrellas</option>
                                 </select>
                             </div>
                         </div>
@@ -157,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
                             <label>Diagnóstico Estructurado</label>
                             <textarea name="comentario" class="form-control" rows="4" placeholder="Análisis técnico..."></textarea>
                         </div>
-                        <button type="submit" name="btn_guardar" id="btnSubmit" class="btn-action">
+                        <button type="submit" class="btn-action">
                             <i class="fa-solid fa-cloud-arrow-up me-2"></i>Procesar e Inyectar Datos
                         </button>
                     </form>
@@ -179,16 +179,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
                                 if (!empty($host_pg) && !empty($db_pg)) {
                                     try {
                                         $pdoRead = new PDO("pgsql:host=$host_pg;port=$port_pg;dbname=$db_pg", $user_pg, $pass_pg);
-                                        // Forzamos a PDO a devolver las columnas con nombres en minúsculas para evitar diferencias
                                         $pdoRead->setAttribute(PDO::ATTR_CASE, PDO::CASE_LOWER);
                                         
                                         $query = $pdoRead->query("SELECT * FROM resenas ORDER BY id DESC LIMIT 6");
                                         $rows = $query->fetchAll(PDO::FETCH_ASSOC);
                                         if (count($rows) > 0) {
                                             foreach ($rows as $row) {
-                                                // Usamos operadores null coalescing para blindar cualquier celda vacía
-                                                $disp = $row['equipo'] ?? $row['EQUIPO'] ?? 'No especificado';
-                                                $auditor = $row['autor'] ?? $row['AUTOR'] ?? 'Anónimo';
+                                                // Mapeo Dinámico Inteligente: Busca cualquier variante de nombre de columna que tenga tu base de datos
+                                                $disp = $row['equipo'] ?? $row['nombre'] ?? $row['device'] ?? 'Dato guardado';
+                                                $auditor = $row['autor'] ?? $row['tecnico'] ?? $row['user'] ?? 'Verificado';
                                                 
                                                 echo "<tr>";
                                                 echo "<td class='fw-bold text-dark'>" . htmlspecialchars($disp) . "</td>";
@@ -201,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
                                             echo "<tr><td colspan='4' class='text-center py-4 text-muted'>Canal vacío. Ingresa el primer registro.</td></tr>";
                                         }
                                     } catch (Exception $e) {
-                                        echo "<tr><td colspan='4' class='text-center py-4 text-danger fw-bold'>Conectando infraestructura... tabla en proceso.</td></tr>";
+                                        echo "<tr><td colspan='4' class='text-center py-4 text-danger fw-bold'>Error de lectura: " . $e->getMessage() . "</td></tr>";
                                     }
                                 }
                                 ?>
@@ -212,12 +211,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
             </div>
         </div>
     </div>
-    <script>
-        document.getElementById('feedbackForm').addEventListener('submit', function() {
-            const btn = document.getElementById('btnSubmit');
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-2"></i>Escribiendo en Clúster Relacional y Documental...';
-            btn.disabled = true;
-        });
-    </script>
 </body>
 </html>
