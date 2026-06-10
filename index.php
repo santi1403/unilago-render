@@ -1,254 +1,271 @@
 <?php
-// 1. Enlace de conexión directo a tu PostgreSQL de Render
-$db_url = "postgresql://santiago_user:6IbDCvGpRPCOmswaIIuQ3k0jatpNMvVO@dpg-d8ks7afavr4c73en8ggg-a.oregon-postgres.render.com/unilago_db_u5qg";
+// ==========================================
+// CONFIGURACIÓN Y CONEXIÓN COMPLETA A MONGO
+// ==========================================
+require 'vendor/autoload.php'; 
 
-// Conectar a la base de datos
-$dbconn = pg_connect($db_url);
+$mongoUri = "mongodb+srv://santibautista720_db_user:rALSrEuApb3lzwkq@unilago.skrrmay.mongodb.net/?retryWrites=true&w=majority";
+$mensajeLog = "";
+$tipoAlerta = "info";
 
-if (!$dbconn) {
-    die("Error al conectar con la base de datos de UniLago.");
-}
+try {
+    $client = new MongoDB\Client($mongoUri);
+    $db = $client->unilago_db;
+    $collection = $db->reseñas;
 
-// Crear la tabla si no existe
-$query_table = "CREATE TABLE IF NOT EXISTS resenas (
-    id SERIAL PRIMARY KEY,
-    tienda VARCHAR(100) NOT NULL,
-    comentario TEXT NOT NULL,
-    estrellas INT NOT NULL,
-    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);";
-pg_query($dbconn, $query_table);
+    // ------------------------------------------
+    // PROCESAMIENTO DEL FORMULARIO (POST)
+    // ------------------------------------------
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+        
+        if ($_POST['action'] === 'crear') {
+            $nombreUsuario = trim(htmlspecialchars($_POST['nombre']));
+            $tienda        = trim(htmlspecialchars($_POST['tienda']));
+            $categoria     = trim(htmlspecialchars($_POST['categoria']));
+            $calificacion  = (int)$_POST['calificacion'];
+            $comentario    = trim(htmlspecialchars($_POST['comentario']));
+            $recomienda    = isset($_POST['recomienda']) ? true : false;
 
-// Guardar datos si envían el formulario
-$mensaje = "";
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $tienda = htmlspecialchars($_POST['tienda']);
-    $comentario = htmlspecialchars($_POST['comentario']);
-    $estrellas = intval($_POST['estrellas']);
+            if (!empty($nombreUsuario) && !empty($tienda) && $calificacion >= 1 && $calificacion <= 5) {
+                $documento = [
+                    'usuario'      => $nombreUsuario,
+                    'tienda'       => $tienda,
+                    'categoria'    => $categoria,
+                    'calificacion' => $calificacion,
+                    'comentario'   => $comentario,
+                    'recomienda'   => $recomienda,
+                    'fecha_registro' => new MongoDB\BSON\UTCDateTime()
+                ];
 
-    if (!empty($tienda) && !empty($comentario)) {
-        // A. Guardar en PostgreSQL
-        $query_insert = "INSERT INTO resenas (tienda, comentario, estrellas) VALUES ($1, $2, $3);";
-        $res_sql = pg_query_params($dbconn, $query_insert, array($tienda, $comentario, $estrellas));
-
-        if ($res_sql) {
-            // B. PUNTO 8: Respaldo asíncrono ultra veloz estructurado para tu MongoDB Atlas
-            // Creamos la traza compatible con BSON/JSON que tu clúster de Mongo procesa en su buffer
-            $mongo_backup_string = sprintf(
-                "[MONGODB_ATLAS_BACKUP] URI: mongodb+srv://santibautista720_db_user:vDzS5SOJUA2TkcK0@unilago.skrrmay.mongodb.net/ | Clúster: unilago | BaseDatos: unilago_db | Colección: resenas_backup | Payload JSON -> {\"tienda\": \"%s\", \"comentario\": \"%s\", \"estrellas\": %d, \"fecha_respaldo\": \"%s\"}\n",
-                $tienda, $comentario, $estrellas, date('Y-m-d H:i:s')
-            );
-            
-            // Esto inyecta el backup en el hilo del sistema de Render de forma instantánea
-            error_log($mongo_backup_string); 
-
-            $mensaje = "<div style='color: #2f855a; background-color: #f0fff4; border: 1px solid #c6f6d5; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold;'>✓ Reseña publicada en PostgreSQL y respaldada en MongoDB Atlas con éxito.</div>";
-        } else {
-            $mensaje = "<div style='color: #c53030; background-color: #fff5f5; border: 1px solid #fed7d7; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold;'>Error al guardar en la base de datos.</div>";
+                $resultado = $collection->insertOne($documento);
+                if ($resultado->getInsertedCount() === 1) {
+                    $mensajeLog = "✅ Reseña para <strong>$tienda</strong> registrada correctamente en MongoDB Atlas.";
+                    $tipoAlerta = "success";
+                }
+            } else {
+                $mensajeLog = "❌ Error de validación: Por favor llena todos los campos obligatorios.";
+                $tipoAlerta = "danger";
+            }
         }
     }
-}
 
-// Consultar todas las reseñas (Punto 7)
-$query_select = "SELECT * FROM resenas ORDER BY fecha DESC;";
-$result = pg_query($dbconn, $query_select);
+    // ------------------------------------------
+    // FILTROS DE BÚSQUEDA Y CONSULTAS (GET)
+    // ------------------------------------------
+    $filtroQuery = [];
+    if (!empty($_GET['buscar_categoria'])) {
+        $filtroQuery['categoria'] = $_GET['buscar_categoria'];
+    }
+    if (!empty($_GET['buscar_calificacion'])) {
+        $filtroQuery['calificacion'] = (int)$_GET['buscar_calificacion'];
+    }
+
+    // Ejecutar consulta principal con orden descendente por fecha
+    $cursorReseñas = $collection->find($filtroQuery, ['sort' => ['fecha_registro' => -1]]);
+    $listaReseñas = iterator_to_array($cursorReseñas);
+
+    // ------------------------------------------
+    // ESTADÍSTICAS EN TIEMPO REAL (AGREGACIONES MONGO)
+    // ------------------------------------------
+    $totalReseñas = count($listaReseñas);
+    $promedioGeneral = 0;
+    $totalRecomendados = 0;
+
+    if ($totalReseñas > 0) {
+        $sumaCalificaciones = 0;
+        foreach ($listaReseñas as $r) {
+            $sumaCalificaciones += $r['calificacion'];
+            if (isset($r['recomienda']) && $r['recomienda'] === true) {
+                $totalRecomendados++;
+            }
+        }
+        $promedioGeneral = round($sumaCalificaciones / $totalReseñas, 1);
+    }
+
+} catch (Exception $e) {
+    $mensajeLog = "🚨 Error crítico de infraestructura: " . $e->getMessage();
+    $tipoAlerta = "danger";
+    $listaReseñas = [];
+    $totalReseñas = 0;
+    $promedioGeneral = 0;
+    $totalRecomendados = 0;
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auditoría de Tiendas - UniLago</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>UniLago Tech Reviews - Sistema de Auditoría e Insights</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f7fafc;
-            margin: 0;
-            padding: 0;
-            color: #2d3748;
-        }
-        .header {
-            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-            color: white;
-            text-align: center;
-            padding: 40px 20px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-        .header h1 {
-            margin: 0;
-            font-size: 2.5rem;
-            font-weight: 700;
-        }
-        .header p {
-            margin: 10px 0 0 0;
-            font-size: 1.1rem;
-            opacity: 0.9;
-        }
-        .container {
-            max-width: 700px;
-            margin: 40px auto;
-            padding: 0 20px;
-        }
-        .card {
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
-            margin-bottom: 40px;
-        }
-        .card h2 {
-            margin-top: 0;
-            font-size: 1.5rem;
-            color: #1a365d;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            font-size: 0.95rem;
-            color: #4a5568;
-        }
-        .form-control {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #cbd5e0;
-            border-radius: 6px;
-            font-size: 1rem;
-            box-sizing: border-box;
-            transition: border-color 0.2s;
-        }
-        .form-control:focus {
-            outline: none;
-            border-color: #3b82f6;
-        }
-        textarea.form-control {
-            resize: vertical;
-            height: 120px;
-        }
-        .btn {
-            background-color: #1e3a8a;
-            color: white;
-            padding: 14px 20px;
-            border: none;
-            border-radius: 6px;
-            font-size: 1rem;
-            font-weight: 600;
-            width: 100%;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .btn:hover {
-            background-color: #1d4ed8;
-        }
-        .review-card {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            margin-bottom: 15px;
-            border-left: 5px solid #3b82f6;
-        }
-        .review-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        .review-shop {
-            font-weight: 700;
-            font-size: 1.1rem;
-            color: #2b6cb0;
-        }
-        .review-stars {
-            color: #ecc94b;
-            font-size: 1.2rem;
-        }
-        .review-comment {
-            color: #4a5568;
-            line-height: 1.5;
-        }
-        .review-date {
-            font-size: 0.8rem;
-            color: #a0aec0;
-            text-align: right;
-            margin-top: 10px;
-        }
-        .no-reviews {
-            text-align: center;
-            color: #718096;
-            font-style: italic;
-            padding: 20px;
-        }
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .navbar-brand { font-weight: 700; letter-spacing: 1px; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .stats-card { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; }
+        .star-rating { color: #ffc107; font-size: 1.1rem; }
+        .badge-category { background-color: #e9ecef; color: #495057; font-weight: 600; }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <h1>Centro de Experiencias UniLago</h1>
-        <p>Plataforma de Auditoría y Calificación de Tiendas Tecnológicas</p>
-    </div>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="#">🏢 UNILAGO TECH REVIEWS</a>
+            <span class="navbar-text text-white-50">Módulo Core v2.4 - MongoDB Cloud Connection</span>
+        </div>
+    </nav>
 
     <div class="container">
         
-        <?php echo $mensaje; ?>
+        <?php if (!empty($mensajeLog)): ?>
+            <div class="alert alert-<?php echo $tipoAlerta; ?> alert-dismissible fade show" role="alert">
+                <?php echo $mensajeLog; ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
 
-        <div class="card">
-            <h2>📝 Registrar Nueva Calificación</h2>
-            <form action="" method="POST">
-                <div class="form-group">
-                    <label for="tienda">Establecimiento / Local:</label>
-                    <input type="text" id="tienda" name="tienda" class="form-control" placeholder="Ej: Acer Oficial - Local 145" required>
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card p-3 stats-card h-100">
+                    <h6 class="text-white-50 text-uppercase">Volumen de Reseñas</h6>
+                    <h2 class="display-5 fw-bold"><?php echo $totalReseñas; ?></h2>
+                    <small>Registros procesados en clúster</small>
                 </div>
-
-                <div class="form-group">
-                    <label for="estrellas">Nivel de Satisfacción:</label>
-                    <select id="estrellas" name="estrellas" class="form-control" required>
-                        <option value="5">⭐⭐⭐⭐⭐ Excelente Servicio y Garantía</option>
-                        <option value="4">⭐⭐⭐⭐ Buen Servicio / Buenos Precios</option>
-                        <option value="3">⭐⭐⭐ Regular / Atención Normal</option>
-                        <option value="2">⭐⭐ Mala Experiencia / Precios Altos</option>
-                        <option value="1">⭐ Pésimo Servicio / No Recomendado</option>
-                    </select>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3 h-100 border-start border-primary border-4">
+                    <h6 class="text-muted text-uppercase">Índice de Calidad Promedio</h6>
+                    <h2 class="display-5 fw-bold text-primary"><?php echo $promedioGeneral; ?> / 5.0</h2>
+                    <span class="star-rating">
+                        <?php echo str_repeat('★', round($promedioGeneral)) . str_repeat('☆', 5 - round($promedioGeneral)); ?>
+                    </span>
                 </div>
-
-                <div class="form-group">
-                    <label for="comentario">Reseña Detallada:</label>
-                    <textarea id="comentario" name="comentario" class="form-control" placeholder="Describe tu experiencia con la compra..." required></textarea>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3 h-100 border-start border-success border-4">
+                    <h6 class="text-muted text-uppercase">Tasa de Recomendación</h6>
+                    <h2 class="display-5 fw-bold text-success">
+                        <?php echo $totalReseñas > 0 ? round(($totalRecomendados / $totalReseñas) * 100) : 0; ?>%
+                    </h2>
+                    <small><?php echo $totalRecomendados; ?> usuarios recomiendan comprar aquí</small>
                 </div>
-
-                <button type="submit" class="btn">Publicar Auditoría</button>
-            </form>
+            </div>
         </div>
 
-        <h2>📊 Historial de Auditorías en Tiempo Real</h2>
-        <div id="reviews-container">
-            <?php
-            if (pg_num_rows($result) > 0) {
-                while ($row = pg_fetch_assoc($result)) {
-                    echo "<div class='review-card'>";
-                    echo "  <div class='review-header'>";
-                    echo "    <div class='review-shop'>🏢 " . $row['tienda'] . "</div>";
-                    echo "    <div class='review-stars'>" . str_repeat("★", $row['estrellas']) . "</div>";
-                    echo "  </div>";
-                    echo "  <div class='review-comment'>\"" . $row['comentario'] . "\"</div>";
-                    echo "  <div class='review-date'>📅 Registrado el: " . $row['fecha'] . "</div>";
-                    echo "</div>";
-                }
-            } else {
-                echo "<div class='no-reviews'>Aún no hay auditorías registradas en el sistema.</div>";
-            }
-            pg_close($dbconn);
-            ?>
-        </div>
+        <div class="row">
+            <div class="col-lg-5 mb-4">
+                <div class="card p-4">
+                    <h4 class="mb-3 text-dark fw-bold">Gestionar Nueva Reseña</h4>
+                    <hr>
+                    <form method="POST" action="">
+                        <input type="hidden" name="action" value="crear">
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Nombre del Cliente *</label>
+                            <input type="text" name="nombre" class="form-control" placeholder="Ej. Juan Carlos Pérez" required>
+                        </div>
 
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Local / Tienda de UniLago *</label>
+                            <input type="text" name="tienda" class="form-control" placeholder="Ej. TecnoPlaza Local 204" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Línea de Tecnología</label>
+                            <select name="categoria" class="form-select">
+                                <option value="Portátiles y PC">Portátiles y Ordenadores de Torre</option>
+                                <option value="Componentes y Hardware">Componentes (GPU, RAM, Procesadores)</option>
+                                <option value="Servicio Técnico">Servicio Técnico y Mantenimiento</option>
+                                <option value="Periféricos y Accesorios">Periféricos, Monitores y Accesorios</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Puntuación del Servicio</label>
+                            <select name="calificacion" class="form-select text-warning fw-bold">
+                                <option value="5">⭐⭐⭐⭐⭐ (5 - Excelente)</option>
+                                <option value="4">⭐⭐⭐⭐ (4 - Bueno)</option>
+                                <option value="3">⭐⭐⭐ (3 - Regular)</option>
+                                <option value="2">⭐⭐ (2 - Malo)</option>
+                                <option value="1">⭐ (1 - Pésimo)</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Análisis y Opinión Detallada</label>
+                            <textarea name="comentario" class="form-control" rows="4" placeholder="Escribe tu feedback sobre precios, garantía y atención técnica..."></textarea>
+                        </div>
+
+                        <div class="mb-3 form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="recomienda" id="switchRec" checked>
+                            <label class="form-check-label fw-semibold" for="switchRec">¿Recomienda este local comercial?</label>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100 fw-bold py-2 shadow-sm">GUARDAR EN CLUSTER ATLAS</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-lg-7">
+                <div class="card p-4 mb-3">
+                    <h5 class="fw-bold mb-3 text-muted">Filtros Avanzados de Auditoría</h5>
+                    <form method="GET" action="" class="row g-2">
+                        <div class="col-md-6">
+                            <select name="buscar_categoria" class="form-select form-select-sm">
+                                <option value="">Ver Todas las Categorías</option>
+                                <option value="Portátiles y PC" <?php echo (isset($_GET['buscar_categoria']) && $_GET['buscar_categoria'] === 'Portátiles y PC') ? 'selected' : ''; ?>>Portátiles y PC</option>
+                                <option value="Componentes y Hardware" <?php echo (isset($_GET['buscar_categoria']) && $_GET['buscar_categoria'] === 'Componentes y Hardware') ? 'selected' : ''; ?>>Componentes y Hardware</option>
+                                <option value="Servicio Técnico" <?php echo (isset($_GET['buscar_categoria']) && $_GET['buscar_categoria'] === 'Servicio Técnico') ? 'selected' : ''; ?>>Servicio Técnico</option>
+                                <option value="Periféricos y Accesorios" <?php echo (isset($_GET['buscar_categoria']) && $_GET['buscar_categoria'] === 'Periféricos y Accesorios') ? 'selected' : ''; ?>>Periféricos y Accesorios</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <select name="buscar_calificacion" class="form-select form-select-sm">
+                                <option value="">Cualquier Filtro Estrellas</option>
+                                <option value="5" <?php echo (isset($_GET['buscar_calificacion']) && $_GET['buscar_calificacion'] == '5') ? 'selected' : ''; ?>>5 Estrellas</option>
+                                <option value="4" <?php echo (isset($_GET['buscar_calificacion']) && $_GET['buscar_calificacion'] == '4') ? 'selected' : ''; ?>>4 Estrellas</option>
+                                <option value="3" <?php echo (isset($_GET['buscar_calificacion']) && $_GET['buscar_calificacion'] == '3') ? 'selected' : ''; ?>>3 Estrellas</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-secondary btn-sm w-100">Filtrar</button>
+                        </div>
+                    </form>
+                </div>
+
+                <h4 class="fw-bold text-dark mb-3">Data Logs / Reseñas Almacenadas</h4>
+
+                <?php if (count($listaReseñas) > 0): ?>
+                    <?php foreach ($listaReseñas as $res): ?>
+                        <div class="card p-3 mb-3 border-start border-4 <?php echo $res['calificacion'] >= 4 ? 'border-success' : ($res['calificacion'] == 3 ? 'border-warning' : 'border-danger'); ?>">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h5 class="fw-bold mb-1 text-primary"><?php echo htmlspecialchars($res['tienda']); ?></h5>
+                                    <span class="badge badge-category mb-2"><?php echo htmlspecialchars($res['categoria']); ?></span>
+                                </div>
+                                <span class="star-rating">
+                                    <?php echo str_repeat('★', $res['calificacion']) . str_repeat('☆', 5 - $res['calificacion']); ?>
+                                </span>
+                            </div>
+                            <p class="text-secondary mt-1 mb-2 italic">"<?php echo htmlspecialchars($res['comentario']); ?>"</p>
+                            <div class="d-flex justify-content-between align-items-center border-top pt-2 mt-1">
+                                <small class="text-muted">Por: <strong><?php echo htmlspecialchars($res['usuario']); ?></strong></small>
+                                <small class="fw-bold <?php echo $res['recomienda'] ? 'text-success' : 'text-danger'; ?>">
+                                    <?php echo $res['recomienda'] ? '👍 Recomienda Local' : '👎 No Recomienda'; ?>
+                                </small>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <div class="card p-5 text-center text-muted">
+                        <p class="mb-0 fs-5">No se encontraron registros indexados con los filtros seleccionados.</p>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
