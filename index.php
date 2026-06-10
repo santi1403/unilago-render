@@ -1,42 +1,41 @@
 <?php
-/**
- * UNI-LAGO ENTERPRISE SYSTEM | Módulo de Gestión de Feedback
- * Arquitectura: PHP Nativo + MongoDB Driver
- * Versión: 2.6.0 - [BUILD: 2026-06-10]
- */
-
-// --- 1. CONFIGURACIÓN DEL ENTORNO ---
 $mongoUri = "mongodb+srv://santibautista720_db_user:rALSrEuApb3lzwkq@unilago.skrrmay.mongodb.net/?retryWrites=true&w=majority";
-$dbName = "unilago_db";
-$collectionName = "reseñas";
+$mensaje = "";
+$tipo = "";
 
-$feedback = ['message' => '', 'type' => ''];
+try {
+    $manager = new MongoDB\Driver\Manager($mongoUri);
 
-// --- 2. MOTOR DE PROCESAMIENTO ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $nombre = htmlspecialchars(trim($_POST['nombre'] ?? ''));
-    $calificacion = (int)($_POST['calificacion'] ?? 0);
-    $comentario = htmlspecialchars(trim($_POST['comentario'] ?? ''));
-
-    if (!empty($nombre) && !empty($comentario)) {
-        try {
-            $manager = new MongoDB\Driver\Manager($mongoUri);
+    // Lógica de guardado con manejo de excepciones
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!empty($_POST['nombre']) && !empty($_POST['equipo'])) {
             $bulk = new MongoDB\Driver\BulkWrite;
-            $bulk->insert([
-                'nombre' => $nombre,
-                'calificacion' => $calificacion,
-                'comentario' => $comentario,
-                'fecha_registro' => date('Y-m-d H:i:s'),
-                'status' => 'verificado'
-            ]);
-            $manager->executeBulkWrite("$dbName.$collectionName", $bulk);
-            $feedback = ['message' => '¡Reseña enviada con éxito! 🚀', 'type' => 'success'];
-        } catch (Exception $e) {
-            $feedback = ['message' => 'Error de conexión: ' . $e->getMessage(), 'type' => 'danger'];
+            $doc = [
+                'nombre' => htmlspecialchars($_POST['nombre']),
+                'equipo' => htmlspecialchars($_POST['equipo']),
+                'calificacion' => (int)$_POST['calificacion'],
+                'comentario' => htmlspecialchars($_POST['comentario']),
+                'fecha' => date('Y-m-d H:i:s'),
+                'status' => 'PROCESADO'
+            ];
+            $bulk->insert($doc);
+            $manager->executeBulkWrite('unilago_db.reseñas', $bulk);
+            $mensaje = "✅ ¡Datos registrados en el clúster de Atlas!";
+            $tipo = "success";
+        } else {
+            $mensaje = "⚠️ Por favor, rellena los campos obligatorios.";
+            $tipo = "warning";
         }
-    } else {
-        $feedback = ['message' => 'Por favor, completa todos los campos. ⚠️', 'type' => 'warning'];
     }
+
+    // Consulta de registros con límite de 10
+    $query = new MongoDB\Driver\Query([], ['sort' => ['fecha' => -1], 'limit' => 10]);
+    $cursor = $manager->executeQuery('unilago_db.reseñas', $query);
+    $registros = $cursor->toArray();
+
+} catch (Exception $e) {
+    $mensaje = "🔥 Error Crítico en el motor: " . $e->getMessage();
+    $tipo = "danger";
 }
 ?>
 
@@ -44,66 +43,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>UniLago | Feedback Pro</title>
+    <title>UniLago | Gestión Enterprise</title>
     <style>
-        :root { --primary: #0d6efd; --success: #198754; --danger: #dc3545; --warning: #ffc107; }
-        body { font-family: 'Segoe UI', sans-serif; background: #eef2f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .wrapper { width: 100%; max-width: 650px; background: #fff; padding: 40px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .header { text-align: center; margin-bottom: 30px; }
-        .form-group { margin-bottom: 20px; }
-        label { font-weight: 600; display: block; margin-bottom: 8px; }
-        input, select, textarea { width: 100%; padding: 12px; border: 1px solid #ced4da; border-radius: 8px; box-sizing: border-box; }
-        .btn-submit { background: var(--primary); color: white; border: none; padding: 15px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; }
-        .btn-submit:hover { background: #0b5ed7; }
-        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: 600; }
-        .alert-success { background: #d1e7dd; color: #0f5132; }
-        .alert-danger { background: #f8d7da; color: #842029; }
-        .alert-warning { background: #fff3cd; color: #664d03; }
-        footer { margin-top: 30px; text-align: center; font-size: 12px; color: #adb5bd; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
+        .wrapper { max-width: 900px; margin: auto; }
+        .card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; }
+        .success { background: #d1e7dd; color: #0f5132; }
+        .danger { background: #f8d7da; color: #842029; }
+        .warning { background: #fff3cd; color: #664d03; }
+        input, select, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        button { background: #0d6efd; color: white; padding: 12px; border: none; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { background: #343a40; color: white; padding: 12px; }
+        td { border-bottom: 1px solid #eee; padding: 12px; }
+        .badge { background: #e9ecef; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; }
     </style>
 </head>
 <body>
 
 <div class="wrapper">
-    <div class="header">
-        <h1>UniLago 🎓</h1>
-        <p>Sistema Profesional de Calificaciones</p>
-    </div>
+    <div class="card">
+        <h1>UniLago | Dashboard Administrativo 🚀</h1>
+        <?php if($mensaje): ?>
+            <div class="alert <?php echo $tipo; ?>"><?php echo $mensaje; ?></div>
+        <?php endif; ?>
 
-    <?php if ($feedback['message']): ?>
-        <div class="alert alert-<?php echo $feedback['type']; ?>">
-            <?php echo $feedback['message']; ?>
-        </div>
-    <?php endif; ?>
-
-    <form method="POST">
-        <div class="form-group">
-            <label>👤 Nombre Completo</label>
-            <input type="text" name="nombre" required placeholder="Tu nombre...">
-        </div>
-        
-        <div class="form-group">
-            <label>⭐ Calificación</label>
+        <form method="POST">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <input type="text" name="nombre" placeholder="Nombre de Usuario" required>
+                <input type="text" name="equipo" placeholder="Equipo Tecnológico" required>
+            </div>
             <select name="calificacion">
                 <option value="5">⭐⭐⭐⭐⭐ - Excelente</option>
                 <option value="4">⭐⭐⭐⭐ - Muy Bueno</option>
-                <option value="3">⭐⭐⭐ - Regular</option>
-                <option value="2">⭐⭐ - Malo</option>
-                <option value="1">⭐ - Pésimo</option>
             </select>
-        </div>
+            <textarea name="comentario" rows="3" placeholder="Descripción de la reseña..."></textarea>
+            <button type="submit">CONFIRMAR REGISTRO EN ATLAS</button>
+        </form>
+    </div>
 
-        <div class="form-group">
-            <label>💬 Comentarios adicionales</label>
-            <textarea name="comentario" rows="5" required placeholder="Cuéntanos tu experiencia..."></textarea>
-        </div>
-
-        <button type="submit" class="btn-submit">ENVIAR CALIFICACIÓN 📤</button>
-    </form>
-
-    <footer>
-        © 2026 UniLago Engineering Division | Módulo de Persistencia
-    </footer>
+    <div class="card">
+        <h2>Historial de Actividad (Últimos 10)</h2>
+        <table>
+            <tr><th>Usuario</th><th>Equipo</th><th>Calificación</th><th>Fecha</th></tr>
+            <?php foreach ($registros as $doc): ?>
+            <tr>
+                <td><?php echo $doc->nombre; ?></td>
+                <td><?php echo $doc->equipo; ?></td>
+                <td><span class="badge"><?php echo $doc->calificacion; ?> Estrellas</span></td>
+                <td><?php echo $doc->fecha; ?></td>
+            </tr>
+            <?php endforeach; ?>
+        </table>
+    </div>
 </div>
 </body>
 </html>
