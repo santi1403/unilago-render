@@ -1,13 +1,17 @@
 FROM php:8.2-apache
 
-# Actualizar y corregir el comando de instalación (sin el error '-null')
+# Instalar dependencias del sistema para Postgres y drivers
 RUN apt-get update && apt-get install -y \
-    libssl-dev \
+    libpq-dev \
+    && docker-php-ext-install pdo pdo_pgsql \
     && pecl install mongodb \
     && docker-php-ext-enable mongodb
 
-# Copiar los archivos de tu proyecto al servidor
+# Habilitar mod_rewrite para Apache
+RUN a2enmod rewrite
+
+# Copiar el código al directorio del servidor
 COPY . /var/www/html/
 
-# Exponer el puerto 80
-EXPOSE 80
+# Dar permisos
+RUN chown -R www-data:www-data /var/www/html
