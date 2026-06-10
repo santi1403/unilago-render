@@ -22,8 +22,8 @@ COPY . /var/www/html/
 # 6. Ejecutar Composer para instalar el driver de MongoDB y generar el 'vendor/autoload.php'
 RUN composer require mongodb/mongodb --no-interaction
 
-# 7. Asegurar los permisos correctos para Apache
-RUN chown -w -R /var/www/html
+# 7. Asegurar los permisos correctos usando el usuario de Apache (CORREGIDO)
+RUN chown -R www-data:www-data /var/www/html
 
 # 8. Exponer el puerto estándar de Apache
 EXPOSE 80
