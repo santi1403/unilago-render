@@ -179,13 +179,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
                                 if (!empty($host_pg) && !empty($db_pg)) {
                                     try {
                                         $pdoRead = new PDO("pgsql:host=$host_pg;port=$port_pg;dbname=$db_pg", $user_pg, $pass_pg);
+                                        // Forzamos a PDO a devolver las columnas con nombres en minúsculas para evitar diferencias
+                                        $pdoRead->setAttribute(PDO::ATTR_CASE, PDO::CASE_LOWER);
+                                        
                                         $query = $pdoRead->query("SELECT * FROM resenas ORDER BY id DESC LIMIT 6");
                                         $rows = $query->fetchAll(PDO::FETCH_ASSOC);
                                         if (count($rows) > 0) {
                                             foreach ($rows as $row) {
+                                                // Usamos operadores null coalescing para blindar cualquier celda vacía
+                                                $disp = $row['equipo'] ?? $row['EQUIPO'] ?? 'No especificado';
+                                                $auditor = $row['autor'] ?? $row['AUTOR'] ?? 'Anónimo';
+                                                
                                                 echo "<tr>";
-                                                echo "<td class='fw-bold text-dark'>{$row['equipo']}</td>";
-                                                echo "<td><span class='text-muted small'>{$row['autor']}</span></td>";
+                                                echo "<td class='fw-bold text-dark'>" . htmlspecialchars($disp) . "</td>";
+                                                echo "<td><span class='text-muted small'>" . htmlspecialchars($auditor) . "</span></td>";
                                                 echo "<td><span class='engine-badge badge-postgres'><i class='fa-solid fa-cube me-1'></i>Postgres SQL</span></td>";
                                                 echo "<td><span class='engine-badge badge-mongo'><i class='fa-solid fa-leaf me-1'></i>Synced</span></td>";
                                                 echo "</tr>";
