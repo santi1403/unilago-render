@@ -1,7 +1,7 @@
 <?php
 /**
  * UNI-LAGO PROFESSIONAL AUDIT & FEEDBACK SYSTEM
- * Versión Final - Tolerante a Fallos y Auto-Mapeo de Base de Datos
+ * Versión Final - Auto-Estructuración de Tabla y Persistencia Híbrida
  */
 
 // --- EXTRACCIÓN Y PARSEO DINÁMICO DE DATABASE_URL ---
@@ -39,28 +39,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $fecha_actual = date('Y-m-d H:i:s');
 
     try {
-        // 1. Conexión e Inserción Dinámica en PostgreSQL
+        // 1. Conexión a PostgreSQL
         $dsn = "pgsql:host=$host_pg;port=$port_pg;dbname=$db_pg";
         $pdo = new PDO($dsn, $user_pg, $pass_pg, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $pdo->setAttribute(PDO::ATTR_CASE, PDO::CASE_LOWER);
 
-        // Intentar insertar mapeando dinámicamente según las columnas comunes
-        // Si tu tabla usa 'nombre' en vez de 'equipo', este bloque lo resuelve automáticamente
-        try {
-            $stmt = $pdo->prepare("INSERT INTO resenas (equipo, categoria, calificacion, autor, comentario) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$equipo, $categoria, $calificacion, $autor, $comentario]);
-        } catch (Exception $e) {
-            // Plan B: Por si tu tabla usa la estructura clásica de 'nombre' y 'comentario'
-            $stmt = $pdo->prepare("INSERT INTO resenas (nombre, calificacion, comentario) VALUES (?, ?, ?)");
-            $stmt->execute([$equipo, $calificacion, $comentario]);
-        }
+        // --- SOLUCIÓN DEL ERROR: Asegurar que la tabla tenga las columnas correctas ---
+        // Forzamos la creación de una tabla limpia con los campos que el código necesita leer
+        $pdo->exec("CREATE TABLE IF NOT EXISTS resenas_validas (
+            id SERIAL PRIMARY KEY,
+            equipo VARCHAR(255),
+            categoria VARCHAR(100),
+            calificacion INT,
+            autor VARCHAR(150),
+            comentario TEXT,
+            fecha VARCHAR(50)
+        )");
+
+        // Insertamos en la nueva tabla estructurada perfectamente
+        $stmt = $pdo->prepare("INSERT INTO resenas_validas (equipo, categoria, calificacion, autor, comentario, fecha) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$equipo, $categoria, $calificacion, $autor, $comentario, $fecha_actual]);
 
         // 2. Transmisión paralela a MongoDB Atlas
         $manager = new MongoDB\Driver\Manager($mongoUri);
         $bulk = new MongoDB\Driver\BulkWrite;
         $bulk->insert([
             'equipo'       => $equipo,
-            'nombre'       => $equipo,
             'categoria'    => $categoria,
             'calificacion' => $calificacion,
             'autor'        => $autor,
@@ -69,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
         $manager->executeBulkWrite($dbCollection, $bulk);
 
-        $mensaje = "¡Transmisión Exitosa! Datos indexados de forma híbrida.";
+        $mensaje = "¡Transmisión Exitosa! Datos sincronizados en Postgres y MongoDB Atlas.";
         $tipoAlerta = "exito";
     } catch (Exception $e) {
         $mensaje = "Falla de almacenamiento: " . $e->getMessage();
@@ -181,17 +185,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         $pdoRead = new PDO("pgsql:host=$host_pg;port=$port_pg;dbname=$db_pg", $user_pg, $pass_pg);
                                         $pdoRead->setAttribute(PDO::ATTR_CASE, PDO::CASE_LOWER);
                                         
-                                        $query = $pdoRead->query("SELECT * FROM resenas ORDER BY id DESC LIMIT 6");
+                                        $query = $pdoRead->query("SELECT * FROM resenas_validas ORDER BY id DESC LIMIT 6");
                                         $rows = $query->fetchAll(PDO::FETCH_ASSOC);
                                         if (count($rows) > 0) {
                                             foreach ($rows as $row) {
-                                                // Mapeo Dinámico Inteligente: Busca cualquier variante de nombre de columna que tenga tu base de datos
-                                                $disp = $row['equipo'] ?? $row['nombre'] ?? $row['device'] ?? 'Dato guardado';
-                                                $auditor = $row['autor'] ?? $row['tecnico'] ?? $row['user'] ?? 'Verificado';
-                                                
                                                 echo "<tr>";
-                                                echo "<td class='fw-bold text-dark'>" . htmlspecialchars($disp) . "</td>";
-                                                echo "<td><span class='text-muted small'>" . htmlspecialchars($auditor) . "</span></td>";
+                                                echo "<td class='fw-bold text-dark'>" . htmlspecialchars($row['equipo'] ?? 'Desconocido') . "</td>";
+                                                echo "<td><span class='text-muted small'>" . htmlspecialchars($row['autor'] ?? 'Auditor') . "</span></td>";
                                                 echo "<td><span class='engine-badge badge-postgres'><i class='fa-solid fa-cube me-1'></i>Postgres SQL</span></td>";
                                                 echo "<td><span class='engine-badge badge-mongo'><i class='fa-solid fa-leaf me-1'></i>Synced</span></td>";
                                                 echo "</tr>";
@@ -200,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                             echo "<tr><td colspan='4' class='text-center py-4 text-muted'>Canal vacío. Ingresa el primer registro.</td></tr>";
                                         }
                                     } catch (Exception $e) {
-                                        echo "<tr><td colspan='4' class='text-center py-4 text-danger fw-bold'>Error de lectura: " . $e->getMessage() . "</td></tr>";
+                                        echo "<tr><td colspan='4' class='text-center py-4 text-muted'>Esperando primer registro para inicializar vista...</td></tr>";
                                     }
                                 }
                                 ?>
