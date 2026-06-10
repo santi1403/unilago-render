@@ -1,34 +1,53 @@
 <?php
-// 1. TU RUTA DE CONEXIÓN REAL A MONGO ATLAS YA CONECTADA
-$mongoUri = "mongodb+srv://santibautista720_db_user:rALSrEuApb3lzwkq@unilago.skrrmay.mongodb.net/?appName=unilago";
+/**
+ * UniLago Feedback System - Professional Simplified Version
+ * Este script maneja la conexión a MongoDB y el procesamiento de formularios.
+ */
+
+// --- 1. CONFIGURACIÓN E INICIALIZACIÓN ---
+require 'vendor/autoload.php'; // Asegúrate de tener esto según tu Dockerfile
+
+$mongoUri = "mongodb+srv://USUARIO:CONTRASENA@cluster.mongodb.net/?retryWrites=true&w=majority";
+$dbName = "unilago_db";
+$collectionName = "reseñas";
 
 $mensaje = "";
+$tipoAlerta = "";
 
-// 2. CUANDO EL USUARIO LE DA CLIC AL BOTÓN DE ENVIAR
+// --- 2. LÓGICA DE PROCESAMIENTO ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $nombre = $_POST['nombre'] ?? 'Anónimo';
-    $calificacion = $_POST['calificacion'] ?? '5';
-    $comentario = $_POST['comentario'] ?? '';
+    
+    // Validaciones básicas de seguridad
+    $nombre = htmlspecialchars(trim($_POST['nombre'] ?? ''));
+    $calificacion = (int)($_POST['calificacion'] ?? 0);
+    $comentario = htmlspecialchars(trim($_POST['comentario'] ?? ''));
 
-    try {
-        // Conectar usando el driver nativo de PHP
-        $manager = new MongoDB\Driver\Manager($mongoUri);
-        
-        // Preparar los datos tal cual como se van a guardar
-        $bulk = new MongoDB\Driver\BulkWrite;
-        $bulk->insert([
-            'nombre' => $nombre,
-            'calificacion' => (int)$calificacion,
-            'comentario' => $comentario,
-            'fecha' => date('Y-m-d H:i:s')
-        ]);
+    if (empty($nombre) || $calificacion < 1 || $calificacion > 5) {
+        $mensaje = "Error: Por favor llena todos los campos correctamente.";
+        $tipoAlerta = "error";
+    } else {
+        try {
+            // Conexión profesional
+            $client = new MongoDB\Client($mongoUri);
+            $db = $client->$dbName;
+            $collection = $db->$collectionName;
 
-        // Ejecutar la acción en la base de datos 'unilago_db' y colección 'reseñas'
-        $manager->executeBulkWrite('unilago_db.reseñas', $bulk);
-        $mensaje = "<p style='color: green; font-weight: bold;'>¡Calificación guardada con éxito!</p>";
+            // Inserción de datos
+            $insertResult = $collection->insertOne([
+                'nombre' => $nombre,
+                'calificacion' => $calificacion,
+                'comentario' => $comentario,
+                'created_at' => new MongoDB\BSON\UTCDateTime()
+            ]);
 
-    } catch (Exception $e) {
-        $mensaje = "<p style='color: red; font-weight: bold;'>Error al guardar: " . $e->getMessage() . "</p>";
+            if ($insertResult->getInsertedCount() > 0) {
+                $mensaje = "¡Gracias por tu feedback, " . $nombre . "! Registrado con éxito.";
+                $tipoAlerta = "exito";
+            }
+        } catch (Exception $e) {
+            $mensaje = "Error de sistema al conectar a la BD: " . $e->getMessage();
+            $tipoAlerta = "error";
+        }
     }
 }
 ?>
@@ -37,46 +56,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Calificaciones UniLago</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UniLago - Sistema de Calificaciones</title>
     <style>
-        body { font-family: sans-serif; max-width: 400px; margin: 50px auto; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
-        .campo { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input, select, textarea { width: 100%; padding: 8px; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; padding: 10px; width: 100%; cursor: pointer; font-size: 16px; }
-        button:hover { background: #0056b3; }
+        :root { --primary: #0056b3; --bg: #f4f7f6; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 50px; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 500px; }
+        h2 { color: var(--primary); margin-top: 0; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; }
+        input, select, textarea { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; }
+        button:hover { background: #004494; }
+        .alerta { padding: 15px; margin-bottom: 20px; border-radius: 6px; text-align: center; }
+        .exito { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
     </style>
 </head>
 <body>
 
-    <h2>Calificaciones UniLago</h2>
+<div class="card">
+    <h2>UniLago Feedback</h2>
     
-    <?php echo $mensaje; ?>
+    <?php if ($mensaje): ?>
+        <div class="alerta <?php echo $tipoAlerta; ?>"><?php echo $mensaje; ?></div>
+    <?php endif; ?>
 
-    <form method="POST" action="">
-        <div class="campo">
-            <label>Nombre:</label>
-            <input type="text" name="nombre" placeholder="Tu nombre" required>
+    <form method="POST">
+        <div class="form-group">
+            <label>Nombre del Estudiante:</label>
+            <input type="text" name="nombre" required placeholder="Tu nombre completo...">
         </div>
-
-        <div class="campo">
-            <label>Calificación (1 a 5):</label>
+        <div class="form-group">
+            <label>Calificación (1-5):</label>
             <select name="calificacion">
                 <option value="5">5 - Excelente</option>
-                <option value="4">4 - Bueno</option>
+                <option value="4">4 - Muy bueno</option>
                 <option value="3">3 - Regular</option>
                 <option value="2">2 - Malo</option>
                 <option value="1">1 - Pésimo</option>
             </select>
         </div>
-
-        <div class="campo">
-            <label>Comentario / Respeto:</label>
-            <textarea name="comentario" rows="4" placeholder="Escribe aquí tu opinión..." required></textarea>
+        <div class="form-group">
+            <label>Comentarios:</label>
+            <textarea name="comentario" rows="5" placeholder="Escribe tu reseña aquí..."></textarea>
         </div>
-
-        <button type="submit">Guardar Calificación</button>
+        <button type="submit">Enviar Calificación</button>
     </form>
+</div>
 
 </body>
 </html>
+<?php 
+// Final del script profesional
+// (Este espacio ayuda a completar la estructura lógica que pediste)
+// ...
+?>
