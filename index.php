@@ -1,189 +1,275 @@
 <?php
-// Más adelante aquí conectaremos los servidores de Postgres y MongoDB
-$mensaje_alerta = "";
-$tipo_alerta = "";
+// Enlace de conexión directo a tu PostgreSQL de Render
+$db_url = "postgresql://santiago_user:6IbDCvGpRPCOmswaIIuQ3k0jatpNMvVO@dpg-d8ks7afavr4c73en8ggg-a.oregon-postgres.render.com/unilago_db_u5qg";
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['btn_guardar'])) {
-    // Aquí irá la lógica de inserción doble (Postgres + respaldo en Mongo)
-    $mensaje_alerta = "¡Reseña procesada con éxito en el sistema central de UniLago!";
-    $tipo_alerta = "success";
+// Conectar a la base de datos
+$dbconn = pg_connect($db_url);
+
+if (!$dbconn) {
+    die("Error al conectar con la base de datos de UniLago.");
 }
+
+// Crear la tabla si no existe (Requisito del profesor)
+$query_table = "CREATE TABLE IF NOT EXISTS resenas (
+    id SERIAL PRIMARY KEY,
+    tienda VARCHAR(100) NOT NULL,
+    comentario TEXT NOT NULL,
+    estrellas INT NOT NULL,
+    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);";
+pg_query($dbconn, $query_table);
+
+// Guardar datos si envían el formulario
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $tienda = $_POST['tienda'];
+    $comentario = $_POST['comentario'];
+    $estrellas = $_POST['estrellas'];
+
+    $query_insert = "INSERT INTO resenas (tienda, comentario, estrellas) VALUES ($1, $2, $3)";
+    pg_query_params($dbconn, $query_insert, array($tienda, $comentario, $estrellas));
+}
+
+// Traer todas las reseñas
+$result = pg_query($dbconn, "SELECT * FROM resenas ORDER BY fecha DESC");
 ?>
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UniLago - Panel Profesional de Reseñas</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <title>UniLago - Centro de Opiniones Profesional</title>
     <style>
-        body { background: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .navbar-custom { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .card-premium { border: none; border-radius: 15px; box-shadow: 0 8px 24px rgba(0,0,0,0.05); background: #ffffff; transition: transform 0.2s; }
-        .card-premium:hover { transform: translateY(-2px); }
-        .btn-gradient { background: linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%); color: white; border: none; font-weight: 600; border-radius: 8px; transition: all 0.3s; }
-        .btn-gradient:hover { background: linear-gradient(135deg, #1c7a93 0%, #5bbcd3 100%); color: white; box-shadow: 0 4px 15px rgba(33, 147, 176, 0.4); }
-        .tech-badge { background: #eef2f7; color: #2a5298; font-weight: 600; border-radius: 20px; padding: 5px 12px; font-size: 0.85rem; display: inline-block; }
-        .star-rating { color: #ffc107; font-size: 1.1rem; }
+        :root {
+            --primary-color: #1e3a8a;
+            --secondary-color: #3b82f6;
+            --accent-color: #f59e0b;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            letter-spacing: -1px;
+        }
+
+        header p {
+            margin: 10px 0 0 0;
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+            margin-bottom: 40px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .card h2 {
+            margin-top: 0;
+            color: var(--primary-color);
+            font-size: 1.5rem;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #334155;
+            font-size: 0.95rem;
+        }
+
+        input[type="text"], select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background-color: #fdfdfd;
+        }
+
+        input[type="text"]:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--secondary-color);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+            background-color: #fff;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            width: 100%;
+        }
+
+        button:hover {
+            background-color: #172554;
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .resena-list {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .resena-card {
+            background: var(--card-bg);
+            border-left: 5px solid var(--secondary-color);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border-top: 1px solid #f1f5f9;
+            border-right: 1px solid #f1f5f9;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .resena-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .tienda-name {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--primary-color);
+        }
+
+        .stars {
+            color: var(--accent-color);
+            font-size: 1.1rem;
+            letter-spacing: 2px;
+        }
+
+        .comment {
+            color: #334155;
+            margin: 0 0 15px 0;
+            font-size: 1rem;
+        }
+
+        .date {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            display: block;
+            text-align: right;
+        }
+
+        .no-data {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 40px;
+            background: #f1f5f9;
+            border-radius: 8px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
 
-    <nav class="navbar navbar-dark navbar-custom py-3 mb-4">
-        <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="#">
-                <i class="fa-solid fa-microchip fa-2x me-3 text-info"></i>
-                <div>
-                    <span class="fw-bold fs-4 d-block">UNILAGO</span>
-                    <small class="text-light-50 fs-7">Plataforma de Auditoría Tecnológica</small>
+    <header>
+        <h1>🏢 Centro de Experiencias UniLago</h1>
+        <p>Plataforma de Auditoría y Calificación de Tiendas Tecnológicas</p>
+    </header>
+
+    <div class="container">
+        <div class="card">
+            <h2>📝 Registrar Nueva Calificación</h2>
+            <form method="POST">
+                <div class="form-group">
+                    <label for="tienda">Establecimiento / Local:</label>
+                    <input type="text" id="tienda" name="tienda" required placeholder="Ej: Acer Oficial - Local 145">
                 </div>
-            </a>
-            <span class="badge bg-info text-dark px-3 py-2 fw-bold"><i class="fa-solid fa-server me-1"></i> Entorno: Render Cloud</span>
+                
+                <div class="form-group">
+                    <label for="estrellas">Nivel de Satisfacción:</label>
+                    <select id="estrellas" name="estrellas">
+                        <option value="5">⭐⭐⭐⭐⭐ Excelente Servicio y Garantía</option>
+                        <option value="4">⭐⭐⭐⭐ Buen Precio y Atención</option>
+                        <option value="3">⭐⭐⭐ Regular / Precios Altos</option>
+                        <option value="2">⭐⭐ Mala Atención al Cliente</option>
+                        <option value="1">⭐ Pésima Experiencia / Producto Defectuoso</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="comentario">Reseña Detallada:</label>
+                    <textarea id="comentario" name="comentario" rows="4" required placeholder="Describe tu experiencia con la compra, la atención de los asesores y los precios..."></textarea>
+                </div>
+
+                <button type="submit">Publicar Auditoría</button>
+            </form>
         </div>
-    </nav>
 
-    <div class="container mb-5">
-        
-        <?php if (!empty($mensaje_alerta)): ?>
-            <div class="alert alert-<?php echo $tipo_alerta; ?> alert-dismissible fade show shadow-sm" role="alert">
-                <i class="fa-solid fa-circle-check me-2"></i> <?php echo $mensaje_alerta; ?>
-                <button type="button" class="btn-close" data-by-dismiss="alert" aria-label="Close"></button>
-            </div>
-        <?php endif; ?>
-
-        <div class="row g-4">
-            <div class="col-lg-5">
-                <div class="card card-premium p-4">
-                    <h3 class="text-dark fw-bold mb-4 d-flex align-items-center">
-                        <i class="fa-solid fa-square-plus text-primary me-2"></i>Nueva Reseña
-                    </h3>
-                    
-                    <form action="index.php" method="POST" class="needs-validation" novalidate>
-                        <div class="mb-3">
-                            <label for="equipo" class="form-label fw-semibold text-secondary">Modelo del Dispositivo</label>
-                            <div class="input-group">
-                                <span class="input-group-text bg-light text-secondary"><i class="fa-solid fa-laptop"></i></span>
-                                <input type="text" id="equipo" name="equipo" class="form-control" required placeholder="Ej: ASUS ROG Strix G16">
-                            </div>
+        <h3 class="section-title">📊 Historial de Auditorías en Tiempo Real</h3>
+        <div class="resena-list">
+            <?php if (pg_num_rows($result) === 0): ?>
+                <div class="no-data">Aún no hay reseñas registradas para este centro comercial. Sé el primero.</div>
+            <?php else: ?>
+                <?php while ($row = pg_fetch_assoc($result)): ?>
+                    <div class="resena-card">
+                        <div class="resena-header">
+                            <span class="tienda-name">🏢 <?php echo htmlspecialchars($row['tienda']); ?></span>
+                            <span class="stars"><?php echo str_repeat('★', $row['estrellas']) . str_repeat('☆', 5 - $row['estrellas']); ?></span>
                         </div>
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="categoria" class="form-label fw-semibold text-secondary">Categoría</label>
-                                <select id="categoria" name="categoria" class="form-select bg-light" required>
-                                    <option value="Portátiles">Portátiles</option>
-                                    <option value="Componentes PC">Componentes PC</option>
-                                    <option value="Monitores">Monitores</option>
-                                    <option value="Periféricos">Periféricos</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="calificacion" class="form-label fw-semibold text-secondary">Evaluación</label>
-                                <select id="calificacion" name="calificacion" class="form-select bg-light text-warning fw-bold" required>
-                                    <option value="5">⭐⭐⭐⭐⭐ (5/5)</option>
-                                    <option value="4">⭐⭐⭐⭐ (4/5)</option>
-                                    <option value="3">⭐⭐⭐ (3/5)</option>
-                                    <option value="2">⭐⭐ (2/5)</option>
-                                    <option value="1">⭐ (1/5)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="autor" class="form-label fw-semibold text-secondary">Especialista / Auditor</label>
-                            <div class="input-group">
-                                <span class="input-group-text bg-light text-secondary"><i class="fa-solid fa-user-shield"></i></span>
-                                <input type="text" id="autor" name="autor" class="form-control" required placeholder="Nombre del Técnico">
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label for="comentario" class="form-label fw-semibold text-secondary">Diagnóstico Técnico</label>
-                            <textarea id="comentario" name="comentario" class="form-control" rows="4" maxlength="500" required placeholder="Escriba el análisis de rendimiento, temperaturas y arquitectura física..."></textarea>
-                            <div class="form-text text-end" id="char-count">0 / 500 caracteres</div>
-                        </div>
-
-                        <button type="submit" name="btn_guardar" class="btn btn-gradient w-100 py-3 fs-5">
-                            <i class="fa-solid fa-cloud-arrow-up me-2"></i>Transmitir Datos
-                        </button>
-                    </form>
-                </div>
-            </div>
-
-            <div class="col-lg-7">
-                <div class="card card-premium p-4">
-                    <div class="d-flex justify-content-between align-items-center mb-4">
-                        <h3 class="text-dark fw-bold m-0 d-flex align-items-center">
-                            <i class="fa-solid fa-database text-success me-2"></i>Registros Indexados
-                        </h3>
-                        <span class="badge bg-dark rounded-pill px-3">Live Feed</span>
+                        <p class="comment">"<?php echo htmlspecialchars($row['comentario']); ?>"</p>
+                        <small class="date">📅 Registrado el: <?php echo date('d/m/Y H:i', strtotime($row['fecha'])); ?></small>
                     </div>
-
-                    <form action="index.php" method="GET" class="row g-2 mb-4">
-                        <div class="col-sm-8">
-                            <select name="categoria_filtro" class="form-select bg-light">
-                                <option value="">-- Filtrar por Línea de Producto --</option>
-                                <option value="Portátiles">Portátiles</option>
-                                <option value="Componentes PC">Componentes PC</option>
-                                <option value="Monitores">Monitores</option>
-                                <option value="Periféricos">Periféricos</option>
-                            </select>
-                        </div>
-                        <div class="col-sm-4">
-                            <button type="submit" class="btn btn-secondary w-100"><i class="fa-solid fa-filter me-1"></i>Filtrar</button>
-                        </div>
-                    </form>
-
-                    <div class="overflow-y-auto" style="max-height: 520px; padding-right: 5px;">
-                        
-                        <div class="card card-premium border-start border-primary border-4 p-3 mb-3 bg-light bg-opacity-50">
-                            <div class="d-flex justify-content-between align-items-start mb-2">
-                                <h5 class="fw-bold text-primary m-0"><i class="fa-solid fa-microchip me-2"></i>NVIDIA RTX 4070 Ti Super</h5>
-                                <span class="tech-badge"><i class="fa-solid fa-tags me-1"></i>Componentes PC</span>
-                            </div>
-                            <p class="text-muted small mb-2">
-                                <i class="fa-solid fa-user-gear me-1"></i>Ing. Santiago Aguilar | 
-                                <span class="star-rating ms-2">⭐⭐⭐⭐⭐</span>
-                            </p>
-                            <p class="text-dark bg-white p-3 rounded border border-light-subtle fs-6 shadow-sm mb-2">
-                                Excelente escalabilidad térmica en pruebas de estrés bajo entornos virtualizados. El consumo energético se estabiliza en los 285W con picos controlados. Recomendado para ensambles de alta gama en UniLago.
-                            </p>
-                            <div class="d-flex justify-content-between align-items-center text-secondary small">
-                                <span><i class="fa-solid fa-clock me-1"></i> Sincronizado en Postgres + MongoDB Atlas</span>
-                                <span class="text-success fw-bold"><i class="fa-solid fa-shield-halved me-1"></i> Seguro</span>
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
+                <?php endwhile; ?>
+            <?php endif; ?>
         </div>
     </div>
 
-    <script>
-        // Contador dinámico de caracteres
-        const textarea = document.getElementById('comentario');
-        const charCount = document.getElementById('char-count');
-        textarea.addEventListener('input', () => {
-            charCount.textContent = `${textarea.value.length} / 500 caracteres`;
-        });
-
-        // Desactivar envíos si hay campos inválidos
-        (function () {
-            'use strict'
-            var forms = document.querySelectorAll('.needs-validation')
-            Array.prototype.slice.call(forms).forEach(function (form) {
-                form.addEventListener('submit', function (event) {
-                    if (!form.checkValidity()) {
-                        event.preventDefault()
-                        event.stopPropagation()
-                    }
-                    form.classList.add('was-validated')
-                }, false)
-            })
-        })()
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
