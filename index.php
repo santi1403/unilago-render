@@ -2,7 +2,7 @@
 /**
  * UNI-LAGO ENTERPRISE SYSTEM | Módulo de Gestión de Feedback
  * Arquitectura: PHP Nativo + MongoDB Driver
- * Versión: 2.5.0 - [BUILD: 2026-06-10]
+ * Versión: 2.6.0 - [BUILD: 2026-06-10]
  */
 
 // --- 1. CONFIGURACIÓN DEL ENTORNO ---
@@ -10,10 +10,7 @@ $mongoUri = "mongodb+srv://santibautista720_db_user:rALSrEuApb3lzwkq@unilago.skr
 $dbName = "unilago_db";
 $collectionName = "reseñas";
 
-$feedback = [
-    'message' => '',
-    'type' => ''
-];
+$feedback = ['message' => '', 'type' => ''];
 
 // --- 2. MOTOR DE PROCESAMIENTO ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -25,7 +22,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $manager = new MongoDB\Driver\Manager($mongoUri);
             $bulk = new MongoDB\Driver\BulkWrite;
-            
             $bulk->insert([
                 'nombre' => $nombre,
                 'calificacion' => $calificacion,
@@ -33,14 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'fecha_registro' => date('Y-m-d H:i:s'),
                 'status' => 'verificado'
             ]);
-
             $manager->executeBulkWrite("$dbName.$collectionName", $bulk);
-            $feedback = ['message' => '¡Reseña procesada correctamente en la Base de Datos!', 'type' => 'success'];
+            $feedback = ['message' => '¡Reseña enviada con éxito! 🚀', 'type' => 'success'];
         } catch (Exception $e) {
-            $feedback = ['message' => 'Error de conexión con el Clúster: ' . $e->getMessage(), 'type' => 'danger'];
+            $feedback = ['message' => 'Error de conexión: ' . $e->getMessage(), 'type' => 'danger'];
         }
     } else {
-        $feedback = ['message' => 'Campos obligatorios detectados como vacíos.', 'type' => 'warning'];
+        $feedback = ['message' => 'Por favor, completa todos los campos. ⚠️', 'type' => 'warning'];
     }
 }
 ?>
@@ -49,21 +44,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UniLago | Enterprise Feedback Management</title>
+    <title>UniLago | Feedback Pro</title>
     <style>
-        /* Estilos Pro tipo Bootstrap */
-        :root { --primary: #0d6efd; --success: #198754; --danger: #dc3545; --warning: #ffc107; --bg: #f8f9fa; }
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: var(--bg); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .wrapper { width: 100%; max-width: 650px; background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
-        .header h1 { color: #212529; font-size: 24px; margin: 0; }
+        :root { --primary: #0d6efd; --success: #198754; --danger: #dc3545; --warning: #ffc107; }
+        body { font-family: 'Segoe UI', sans-serif; background: #eef2f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .wrapper { width: 100%; max-width: 650px; background: #fff; padding: 40px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .header { text-align: center; margin-bottom: 30px; }
         .form-group { margin-bottom: 20px; }
-        label { display: block; font-weight: 600; margin-bottom: 8px; color: #495057; }
-        input, select, textarea { width: 100%; padding: 12px; border: 1px solid #ced4da; border-radius: 6px; box-sizing: border-box; }
-        .btn-submit { background: var(--primary); color: white; border: none; padding: 14px; width: 100%; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        label { font-weight: 600; display: block; margin-bottom: 8px; }
+        input, select, textarea { width: 100%; padding: 12px; border: 1px solid #ced4da; border-radius: 8px; box-sizing: border-box; }
+        .btn-submit { background: var(--primary); color: white; border: none; padding: 15px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; }
         .btn-submit:hover { background: #0b5ed7; }
-        .alert { padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center; }
+        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: 600; }
         .alert-success { background: #d1e7dd; color: #0f5132; }
         .alert-danger { background: #f8d7da; color: #842029; }
         .alert-warning { background: #fff3cd; color: #664d03; }
@@ -74,56 +66,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <div class="wrapper">
     <div class="header">
-        <h1>Sistema UniLago v2.5.0</h1>
-        <p>Servicio de Gestión de Reseñas Académicas</p>
+        <h1>UniLago 🎓</h1>
+        <p>Sistema Profesional de Calificaciones</p>
     </div>
 
-    <?php if (!empty($feedback['message'])): ?>
+    <?php if ($feedback['message']): ?>
         <div class="alert alert-<?php echo $feedback['type']; ?>">
             <?php echo $feedback['message']; ?>
         </div>
     <?php endif; ?>
 
-    <form method="POST" action="">
+    <form method="POST">
         <div class="form-group">
-            <label>Nombre del Estudiante</label>
-            <input type="text" name="nombre" required placeholder="Ej: Santiago Bautista">
+            <label>👤 Nombre Completo</label>
+            <input type="text" name="nombre" required placeholder="Tu nombre...">
         </div>
         
         <div class="form-group">
-            <label>Puntuación de Servicio</label>
+            <label>⭐ Calificación</label>
             <select name="calificacion">
-                <option value="5">5 - Excelente</option>
-                <option value="4">4 - Muy Bueno</option>
-                <option value="3">3 - Regular</option>
-                <option value="2">2 - Bajo</option>
-                <option value="1">1 - Deficiente</option>
+                <option value="5">⭐⭐⭐⭐⭐ - Excelente</option>
+                <option value="4">⭐⭐⭐⭐ - Muy Bueno</option>
+                <option value="3">⭐⭐⭐ - Regular</option>
+                <option value="2">⭐⭐ - Malo</option>
+                <option value="1">⭐ - Pésimo</option>
             </select>
         </div>
 
         <div class="form-group">
-            <label>Comentario Técnico</label>
-            <textarea name="comentario" rows="5" required placeholder="Escriba aquí sus observaciones..."></textarea>
+            <label>💬 Comentarios adicionales</label>
+            <textarea name="comentario" rows="5" required placeholder="Cuéntanos tu experiencia..."></textarea>
         </div>
 
-        <button type="submit" class="btn-submit">PROCESAR FEEDBACK</button>
+        <button type="submit" class="btn-submit">ENVIAR CALIFICACIÓN 📤</button>
     </form>
 
     <footer>
-        © 2026 UniLago Engineering Division | Módulo de Persistencia de Datos
+        © 2026 UniLago Engineering Division | Módulo de Persistencia
     </footer>
 </div>
-
-<?php 
-/**
- * --- BLOQUE TÉCNICO DE DOCUMENTACIÓN ---
- * 1. Sanitización de entradas mediante htmlspecialchars() para evitar XSS.
- * 2. Conexión persistente mediante MongoDB Driver Manager.
- * 3. Diseño responsivo optimizado para despliegue en Render (Production).
- * 4. Gestión de errores vía bloques Try-Catch.
- * * [LOG STATUS: READY]
- * [ENVIRONMENT: PRODUCTION-RENDER]
- */
-?>
 </body>
 </html>
